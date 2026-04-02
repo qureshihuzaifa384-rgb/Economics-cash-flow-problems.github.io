@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Advanced Cash Flow Solver & Diagram</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background: #f8f9fa; color: #333; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .input-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { background: #007bff; color: white; padding: 12px; border: none; border-radius: 4px; width: 100%; cursor: pointer; font-size: 16px; transition: 0.3s; }
+        button:hover { background: #0056b3; }
+        #results { margin-top: 25px; display: none; border-top: 2px solid #eee; padding-top: 20px; }
+        canvas { background: #fff; border: 1px solid #eee; margin-top: 20px; width: 100%; }
+        .result-item { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f1f1f1; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Financial Engineering Solver</h2>
+    
+    <div class="input-group">
+        <label>Project Life (n in years):</label>
+        <input type="number" id="n_years" value="5">
+    </div>
+
+    <div class="input-group">
+        <label>Interest Rate (i %):</label>
+        <input type="number" id="i_rate" value="10">
+    </div>
+
+    <div class="input-group">
+        <label>Flow Type:</label>
+        <select id="flow_type" onchange="toggleInputs()">
+            <option value="single">Single Payment (P or F)</option>
+            <option value="uniform">Uniform Series (A)</option>
+            <option value="gradient">Linear Gradient (G)</option>
+        </select>
+    </div>
+
+    <div id="dynamic_inputs">
+        <div class="input-group">
+            <label id="amount_label">Initial Amount ($):</label>
+            <input type="number" id="base_amount" value="1000">
+        </div>
+        <div class="input-group" id="gradient_group" style="display:none;">
+            <label>Gradient Step (G $):</label>
+            <input type="number" id="g_step" value="100">
+        </div>
+    </div>
+
+    <button onclick="solveAndDraw()">Solve & Draw Diagram</button>
+
+    <div id="results">
+        <h3>Calculated Values</h3>
+        <div class="result-item"><span>Present Worth (PW):</span> <strong id="res_pw"></strong></div>
+        <div class="result-item"><span>Future Worth (FW):</span> <strong id="res_fw"></strong></div>
+        <div class="result-item"><span>Annual Worth (AW):</span> <strong id="res_aw"></strong></div>
+        
+        <canvas id="cfCanvas" width="700" height="300"></canvas>
+    </div>
+</div>
+
+<script>
+    function toggleInputs() {
+        const type = document.getElementById('flow_type').value;
+        document.getElementById('gradient_group').style.display = (type === 'gradient') ? 'block' : 'none';
+        document.getElementById('amount_label').innerText = (type === 'uniform') ? 'Annual Amount (A):' : 'Initial Amount:';
+    }
+
+    function solveAndDraw() {
+        const n = parseInt(document.getElementById('n_years').value);
+        const i = parseFloat(document.getElementById('i_rate').value) / 100;
+        const type = document.getElementById('flow_type').value;
+        const base = parseFloat(document.getElementById('base_amount').value);
+        const G = parseFloat(document.getElementById('g_step').value);
+
+        let pw = 0;
+        let cashFlows = new Array(n + 1).fill(0);
+
+        if (type === 'single') {
+            pw = base; 
+            cashFlows[0] = base;
+        } else if (type === 'uniform') {
+            // PW = A * [(1+i)^n - 1] / [i(1+i)^n]
+            pw = base * (Math.pow(1+i, n) - 1) / (i * Math.pow(1+i, n));
+            for(let t=1; t<=n; t++) cashFlows[t] = base;
+        } else if (type === 'gradient') {
+            // PW = A(P/A) + G(P/G)
+            let pw_a = base * (Math.pow(1+i, n) - 1) / (i * Math.pow(1+i, n));
+            let pw_g = G/i * (((Math.pow(1+i, n)-1)/(i*Math.pow(1+i,n))) - (n/Math.pow(1+i,n)));
+            pw = pw_a + pw_g;
+            for(let t=1; t<=n; t++) cashFlows[t] = base + (G * (t-1));
+        }
+
+        const fw = pw * Math.pow(1+i, n);
+        const aw = pw * (i * Math.pow(1+i, n)) / (Math.pow(1+i, n) - 1);
+
+        // Update UI
+        document.getElementById('results').style.display = 'block';
+        document.getElementById('res_pw').innerText = "$" + pw.toFixed(2);
+        document.getElementById('res_fw').innerText = "$" + fw.toFixed(2);
+        document.getElementById('res_aw').innerText = "$" + aw.toFixed(2);
+
+        drawDiagram(cashFlows, n);
+    }
+
+    function drawDiagram(flows, n) {
+        const canvas = document.getElementById('cfCanvas');
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const margin = 50;
+        const width = canvas.width - (margin * 2);
+        const centerY = canvas.height / 2;
+        const step = width / n;
+
+        // Draw Time Axis
+        ctx.beginPath();
+        ctx.moveTo(margin, centerY);
+        ctx.lineTo(canvas.width - margin, centerY);
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        const maxVal = Math.max(...flows.map(Math.abs), 1);
+
+        flows.forEach((amt, t) => {
+            const x = margin + (t * step);
+            // Draw ticks/numbers
+            ctx.fillText(t, x - 3, centerY + 15);
+
+            if (amt !== 0) {
+                const arrowHeight = (amt / maxVal) * 80;
+                ctx.beginPath();
+                ctx.moveTo(x, centerY);
+                ctx.lineTo(x, centerY - arrowHeight);
+                ctx.strokeStyle = amt > 0 ? "green" : "red";
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                // Arrow head
+                const head = amt > 0 ? -5 : 5;
+                ctx.beginPath();
+                ctx.moveTo(x - 5, centerY - arrowHeight - head);
+                ctx.lineTo(x, centerY - arrowHeight);
+                ctx.lineTo(x + 5, centerY - arrowHeight - head);
+                ctx.stroke();
+            }
+        });
+    }
+</script>
+
+</body>
+</html>
